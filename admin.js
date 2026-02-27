@@ -1,17 +1,26 @@
-// admin.js - Forces server reads
+// admin.js - Fixed: no page refresh, instant saves
 (function(){
 "use strict";
-var AU=null,cats=[],prods=[];
+var AU=null,cats=[],prods=[],initialLoad={cats:false,prods:false,pays:false,orders:false,users:false};
 var $=function(id){return document.getElementById(id)};
 function esc(t){if(!t)return"";var d=document.createElement("div");d.textContent=t;return d.innerHTML}
-function toast(m,ty){var c=$("TC"),e=document.createElement("div");e.className="toast "+(ty||"info");e.innerHTML='<span class="t-ico">'+({success:"✅",error:"❌",warning:"⚠️",info:"ℹ️"}[ty]||"ℹ️")+'</span><span class="t-msg">'+m+'</span>';c.appendChild(e);setTimeout(function(){e.remove()},3e3)}
+function toast(m,ty){
+  var c=$("TC");if(!c)return;
+  var e=document.createElement("div");
+  e.className="toast "+(ty||"info");
+  e.innerHTML='<span class="t-ico">'+({success:"✅",error:"❌",warning:"⚠️",info:"ℹ️"}[ty]||"ℹ️")+'</span><span class="t-msg">'+m+'</span>';
+  c.appendChild(e);
+  setTimeout(function(){if(e.parentNode)e.remove()},3e3);
+}
 function now(){return new Date().toISOString()}
 
-// Force server reads
-function serverGet(ref){
-  return ref.get({source:"server"}).catch(function(){
-    return ref.get();
-  });
+// Smart get: server on first load, then default (cache+server)
+function smartGet(ref, key){
+  if(!initialLoad[key]){
+    initialLoad[key]=true;
+    return ref.get({source:"server"}).catch(function(){return ref.get()});
+  }
+  return ref.get();
 }
 
 // AUTH
@@ -35,15 +44,16 @@ auth.onAuthStateChanged(function(u){
   }
 });
 
-$("gLogin").addEventListener("click",function(){
+$("gLogin").addEventListener("click",function(e){
+  e.preventDefault();
   var b=this;b.disabled=true;b.textContent="Signing in...";$("LE").style.display="none";
   auth.signInWithPopup(googleProvider).then(function(){
     b.disabled=false;
     b.innerHTML='<img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg"> Continue with Google';
-  }).catch(function(e){
+  }).catch(function(err){
     b.disabled=false;
     b.innerHTML='<img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg"> Continue with Google';
-    $("LE").textContent=e.message;$("LE").style.display="block";
+    $("LE").textContent=err.message;$("LE").style.display="block";
   });
 });
 
@@ -83,15 +93,25 @@ function goS(s){
 
 var slinks=document.querySelectorAll("#SNAV a[data-s]");
 for(var si=0;si<slinks.length;si++){
-  slinks[si].addEventListener("click",function(e){e.preventDefault();goS(this.getAttribute("data-s"))});
+  slinks[si].addEventListener("click",function(e){
+    e.preventDefault();
+    goS(this.getAttribute("data-s"));
+  });
 }
-$("xSide").addEventListener("click",function(){$("SIDE").classList.toggle("open");$("SOV").classList.toggle("open")});
-$("SOV").addEventListener("click",function(){$("SIDE").classList.remove("open");this.classList.remove("open")});
+$("xSide").addEventListener("click",function(e){
+  e.preventDefault();
+  $("SIDE").classList.toggle("open");
+  $("SOV").classList.toggle("open");
+});
+$("SOV").addEventListener("click",function(){
+  $("SIDE").classList.remove("open");
+  this.classList.remove("open");
+});
 
-// DASHBOARD
+// ==================== DASHBOARD ====================
 function lDash(){
-  serverGet(db.collection("users")).then(function(s){$("sU").textContent=s.size}).catch(function(){});
-  serverGet(db.collection("orders")).then(function(s){
+  smartGet(db.collection("users"),"users").then(function(s){$("sU").textContent=s.size}).catch(function(){});
+  smartGet(db.collection("orders"),"orders").then(function(s){
     $("sO").textContent=s.size;
     var os=[];
     s.forEach(function(d){os.push({id:d.id,d:d.data()})});
@@ -116,22 +136,26 @@ function lDash(){
         +"<td>"+dt+"</td></tr>";
     }
     tb.innerHTML=h;
+
+    // Count pending and revenue from same snapshot
+    var pending=0, revenue=0;
+    os.forEach(function(o){
+      if(o.d.status==="pending") pending++;
+      if(o.d.status==="approved") revenue+=(+o.d.total)||0;
+    });
+    $("sP").textContent=pending;
+    $("sR").textContent="$"+revenue.toFixed(2);
   }).catch(function(){});
-  db.collection("orders").where("status","==","pending").get({source:"server"})
-    .then(function(s){$("sP").textContent=s.size}).catch(function(){});
-  db.collection("orders").where("status","==","approved").get({source:"server"})
-    .then(function(s){var r=0;s.forEach(function(d){r+=(+d.data().total)||0});$("sR").textContent="$"+r.toFixed(2)}).catch(function(){});
 }
 
-// CATEGORIES
+// ==================== CATEGORIES ====================
 function lCats(){
   $("CF").style.display="none";
   resetCF();
-  serverGet(db.collection("categories")).then(function(snap){
+  smartGet(db.collection("categories"),"cats").then(function(snap){
     cats=[];
     snap.forEach(function(d){cats.push({id:d.id,name:d.data().name||"",icon:d.data().icon||"📁"})});
     cats.sort(function(a,b){return a.name.localeCompare(b.name)});
-    console.log("Categories from server:",cats.length);
     renderCT();
   }).catch(function(e){toast("Error: "+e.message,"error")});
 }
@@ -144,7 +168,7 @@ function resetCF(){
 
 function renderCT(){
   var tb=$("cTbl");
-  if(!cats.length){tb.innerHTML='<tr><td colspan="3" style="text-align:center;padding:24px;color:var(--g6)">No categories.</td></tr>';return;}
+  if(!cats.length){tb.innerHTML='<tr><td colspan="3" style="text-align:center;padding:24px;color:var(--g6)">No categories. Click + Add.</td></tr>';return;}
   var h="";
   for(var i=0;i<cats.length;i++){
     var c=cats[i];
@@ -155,8 +179,10 @@ function renderCT(){
       +'<button type="button" class="btn btn-r btn-sm" data-dc="'+c.id+'">🗑️</button></td></tr>';
   }
   tb.innerHTML=h;
+
   tb.querySelectorAll("[data-ec]").forEach(function(b){
-    b.addEventListener("click",function(){
+    b.addEventListener("click",function(e){
+      e.preventDefault();
       var id=this.getAttribute("data-ec"),cat=cats.find(function(c){return c.id===id});
       if(!cat) return;
       resetCF();
@@ -165,7 +191,8 @@ function renderCT(){
     });
   });
   tb.querySelectorAll("[data-dc]").forEach(function(b){
-    b.addEventListener("click",function(){
+    b.addEventListener("click",function(e){
+      e.preventDefault();
       if(!confirm("Delete?")) return;
       db.collection("categories").doc(this.getAttribute("data-dc")).delete()
         .then(function(){toast("Deleted!","success");lCats()})
@@ -174,45 +201,79 @@ function renderCT(){
   });
 }
 
-$("xNewCat").addEventListener("click",function(){resetCF();$("CF").style.display="block";$("cN").focus()});
-$("xCanCat").addEventListener("click",function(){$("CF").style.display="none";resetCF()});
+$("xNewCat").addEventListener("click",function(e){
+  e.preventDefault();
+  resetCF();$("CF").style.display="block";$("cN").focus();
+});
+$("xCanCat").addEventListener("click",function(e){
+  e.preventDefault();
+  $("CF").style.display="none";resetCF();
+});
 
-$("xSaveCat").addEventListener("click",function(){
-  var id=$("cId").value.trim(),nm=$("cN").value.trim(),ic=$("cI").value.trim()||"📁";
+$("xSaveCat").addEventListener("click",function(e){
+  e.preventDefault();
+  e.stopPropagation();
+
+  var id=$("cId").value.trim();
+  var nm=$("cN").value.trim();
+  var ic=$("cI").value.trim()||"📁";
+
   if(!nm){toast("Name required","warning");$("cN").focus();return;}
-  var btn=$("xSaveCat");btn.disabled=true;btn.textContent="Saving...";
+
+  var btn=$("xSaveCat");
+  btn.disabled=true;btn.textContent="Saving...";
+
   var data={name:nm,icon:ic,updatedAt:now()};
-  var p;
-  if(id){p=db.collection("categories").doc(id).update(data);}
-  else{data.createdAt=now();p=db.collection("categories").add(data);}
-  p.then(function(){
+  var promise;
+
+  if(id){
+    promise=db.collection("categories").doc(id).update(data);
+  } else {
+    data.createdAt=now();
+    promise=db.collection("categories").add(data);
+  }
+
+  promise.then(function(ref){
+    // Update local cache immediately
+    if(id){
+      for(var i=0;i<cats.length;i++){
+        if(cats[i].id===id){cats[i].name=nm;cats[i].icon=ic;break;}
+      }
+    } else {
+      cats.push({id:ref.id,name:nm,icon:ic});
+      cats.sort(function(a,b){return a.name.localeCompare(b.name)});
+    }
     toast(id?"Updated!":"Added!","success");
-    $("CF").style.display="none";resetCF();lCats();
-  }).catch(function(e){
-    toast("Error: "+e.message,"error");
+    $("CF").style.display="none";
+    resetCF();
+    renderCT(); // Instant render from local array
+  }).catch(function(err){
+    toast("Error: "+err.message,"error");
     btn.disabled=false;btn.textContent="💾 Save";
   });
 });
 
-// PRODUCTS
+// ==================== PRODUCTS ====================
 function lProds(){
   $("PF").style.display="none";
   resetPF();
-  serverGet(db.collection("categories")).then(function(cs){
+
+  smartGet(db.collection("categories"),"cats").then(function(cs){
     cats=[];
     cs.forEach(function(d){cats.push({id:d.id,name:d.data().name||"",icon:d.data().icon||"📁"})});
     cats.sort(function(a,b){return a.name.localeCompare(b.name)});
+
     var sel=$("pCat"),opts='<option value="">-- Select --</option>';
     for(var i=0;i<cats.length;i++) opts+='<option value="'+cats[i].id+'">'+esc(cats[i].name)+'</option>';
     sel.innerHTML=opts;
-    return serverGet(db.collection("products"));
+
+    return smartGet(db.collection("products"),"prods");
   }).then(function(snap){
     prods=[];
     snap.forEach(function(d){
       var x=d.data();
       prods.push({id:d.id,name:x.name||"",price:x.price||0,imageURL:x.imageURL||"",description:x.description||"",categoryId:x.categoryId||"",customFields:x.customFields||[]});
     });
-    console.log("Products from server:",prods.length);
     renderPT();
   }).catch(function(e){toast("Error: "+e.message,"error")});
 }
@@ -239,7 +300,8 @@ function renderPT(){
   tb.innerHTML=h;
 
   tb.querySelectorAll("[data-ep]").forEach(function(b){
-    b.addEventListener("click",function(){
+    b.addEventListener("click",function(e){
+      e.preventDefault();
       var id=this.getAttribute("data-ep"),pr=prods.find(function(p){return p.id===id});
       if(!pr) return;
       resetPF();
@@ -251,11 +313,16 @@ function renderPT(){
     });
   });
   tb.querySelectorAll("[data-dp]").forEach(function(b){
-    b.addEventListener("click",function(){
+    b.addEventListener("click",function(e){
+      e.preventDefault();
       if(!confirm("Delete?")) return;
-      db.collection("products").doc(this.getAttribute("data-dp")).delete()
-        .then(function(){toast("Deleted!","success");lProds()})
-        .catch(function(e){toast(e.message,"error")});
+      var delId=this.getAttribute("data-dp");
+      db.collection("products").doc(delId).delete().then(function(){
+        // Remove from local array
+        prods=prods.filter(function(p){return p.id!==delId});
+        toast("Deleted!","success");
+        renderPT();
+      }).catch(function(e){toast(e.message,"error")});
     });
   });
 }
@@ -265,7 +332,7 @@ function addDF(l,p){
   var i1=document.createElement("input");i1.type="text";i1.placeholder="Label";i1.value=l||"";i1.className="dfl";
   var i2=document.createElement("input");i2.type="text";i2.placeholder="Placeholder";i2.value=p||"";i2.className="dfp";
   var rb=document.createElement("button");rb.type="button";rb.className="df-rm";rb.textContent="✕";
-  rb.addEventListener("click",function(){r.remove()});
+  rb.addEventListener("click",function(e){e.preventDefault();r.remove()});
   r.appendChild(i1);r.appendChild(i2);r.appendChild(rb);ls.appendChild(r);
 }
 
@@ -278,38 +345,88 @@ function gDF(){
   return fs;
 }
 
-$("xNewProd").addEventListener("click",function(){resetPF();$("PF").style.display="block";$("pN").focus()});
-$("xCanProd").addEventListener("click",function(){$("PF").style.display="none";resetPF()});
-$("xAddF").addEventListener("click",function(){addDF("","")});
+$("xNewProd").addEventListener("click",function(e){
+  e.preventDefault();
+  resetPF();
+  // Rebuild dropdown in case cats changed
+  var sel=$("pCat"),opts='<option value="">-- Select --</option>';
+  for(var i=0;i<cats.length;i++) opts+='<option value="'+cats[i].id+'">'+esc(cats[i].name)+'</option>';
+  sel.innerHTML=opts;
+  $("PF").style.display="block";$("pN").focus();
+});
+$("xCanProd").addEventListener("click",function(e){
+  e.preventDefault();
+  $("PF").style.display="none";resetPF();
+});
+$("xAddF").addEventListener("click",function(e){
+  e.preventDefault();
+  addDF("","");
+});
 
-$("xSaveProd").addEventListener("click",function(){
-  var id=$("pId").value.trim(),nm=$("pN").value.trim(),pr=parseFloat($("pPr").value);
-  var cat=$("pCat").value,img=$("pImg").value.trim(),dsc=$("pDsc").value.trim(),flds=gDF();
+$("xSaveProd").addEventListener("click",function(e){
+  e.preventDefault();
+  e.stopPropagation();
+
+  var id=$("pId").value.trim();
+  var nm=$("pN").value.trim();
+  var pr=parseFloat($("pPr").value);
+  var cat=$("pCat").value;
+  var img=$("pImg").value.trim();
+  var dsc=$("pDsc").value.trim();
+  var flds=gDF();
+
   if(!nm){toast("Name required","warning");$("pN").focus();return;}
   if(isNaN(pr)||pr<0){toast("Valid price required","warning");$("pPr").focus();return;}
   if(!cat){toast("Select category","warning");$("pCat").focus();return;}
 
-  var btn=$("xSaveProd");btn.disabled=true;btn.textContent="Saving...";
+  var btn=$("xSaveProd");
+  btn.disabled=true;btn.textContent="Saving...";
+
   var data={name:nm,price:pr,categoryId:cat,imageURL:img,description:dsc,customFields:flds,updatedAt:now()};
-  var p;
-  if(id){p=db.collection("products").doc(id).update(data);}
-  else{data.createdAt=now();p=db.collection("products").add(data);}
-  p.then(function(){
+  var promise;
+
+  if(id){
+    promise=db.collection("products").doc(id).update(data);
+  } else {
+    data.createdAt=now();
+    promise=db.collection("products").add(data);
+  }
+
+  promise.then(function(ref){
+    // Update local array immediately
+    if(id){
+      for(var i=0;i<prods.length;i++){
+        if(prods[i].id===id){
+          prods[i].name=nm;prods[i].price=pr;prods[i].categoryId=cat;
+          prods[i].imageURL=img;prods[i].description=dsc;prods[i].customFields=flds;
+          break;
+        }
+      }
+    } else {
+      prods.push({id:ref.id,name:nm,price:pr,categoryId:cat,imageURL:img,description:dsc,customFields:flds});
+    }
+
     toast(id?"Updated!":"Added!","success");
-    $("PF").style.display="none";resetPF();lProds();
-  }).catch(function(e){
-    toast("Error: "+e.message,"error");
+    $("PF").style.display="none";
+    resetPF();
+    renderPT(); // Instant render from local array - no server wait
+  }).catch(function(err){
+    console.error("Save error:",err);
+    toast("Error: "+err.message,"error");
     btn.disabled=false;btn.textContent="💾 Save";
   });
 });
 
-// PAYMENTS
+// ==================== PAYMENTS ====================
+var payMethods=[];
+
 function lPays(){
-  $("YF").style.display="none";resetYF();
-  serverGet(db.collection("payment_methods")).then(function(snap){
-    var ms=[];
-    snap.forEach(function(d){var x=d.data();ms.push({id:d.id,name:x.name||"",imageURL:x.imageURL||"",instructions:x.instructions||""})});
-    renderYT(ms);
+  $("YF").style.display="none";
+  resetYF();
+  smartGet(db.collection("payment_methods"),"pays").then(function(snap){
+    payMethods=[];
+    snap.forEach(function(d){var x=d.data();payMethods.push({id:d.id,name:x.name||"",imageURL:x.imageURL||"",instructions:x.instructions||""})});
+    renderYT();
   }).catch(function(e){toast("Error: "+e.message,"error")});
 }
 
@@ -319,12 +436,12 @@ function resetYF(){
   $("xSavePay").disabled=false;$("xSavePay").textContent="💾 Save";
 }
 
-function renderYT(ms){
+function renderYT(){
   var tb=$("yTbl");
-  if(!ms.length){tb.innerHTML='<tr><td colspan="4" style="text-align:center;padding:24px;color:var(--g6)">No methods.</td></tr>';return;}
+  if(!payMethods.length){tb.innerHTML='<tr><td colspan="4" style="text-align:center;padding:24px;color:var(--g6)">No methods.</td></tr>';return;}
   var h="";
-  for(var i=0;i<ms.length;i++){
-    var m=ms[i];
+  for(var i=0;i<payMethods.length;i++){
+    var m=payMethods[i];
     h+='<tr><td><img class="timg" src="'+(m.imageURL||"https://placehold.co/44?text=Pay")+'" onerror="this.src=\'https://placehold.co/44\'"></td>'
       +'<td><strong>'+esc(m.name)+'</strong></td><td>'+esc(m.instructions||"-")+'</td>'
       +'<td class="acts"><button type="button" class="btn btn-s btn-sm" data-ey="'+m.id+'">✏️</button>'
@@ -333,58 +450,88 @@ function renderYT(ms){
   tb.innerHTML=h;
 
   tb.querySelectorAll("[data-ey]").forEach(function(b){
-    b.addEventListener("click",function(){
+    b.addEventListener("click",function(e){
+      e.preventDefault();
       var pid=this.getAttribute("data-ey");
-      db.collection("payment_methods").doc(pid).get({source:"server"}).then(function(doc){
-        if(!doc.exists) return;var d=doc.data();
-        resetYF();
-        $("yId").value=pid;$("yN").value=d.name||"";$("yImg").value=d.imageURL||"";$("yInst").value=d.instructions||"";
-        $("YFH").textContent="Edit Method";$("YF").style.display="block";$("yN").focus();
-      }).catch(function(){
-        db.collection("payment_methods").doc(pid).get().then(function(doc){
-          if(!doc.exists) return;var d=doc.data();
-          resetYF();
-          $("yId").value=pid;$("yN").value=d.name||"";$("yImg").value=d.imageURL||"";$("yInst").value=d.instructions||"";
-          $("YFH").textContent="Edit Method";$("YF").style.display="block";$("yN").focus();
-        });
-      });
+      var pm=payMethods.find(function(m){return m.id===pid});
+      if(!pm) return;
+      resetYF();
+      $("yId").value=pid;$("yN").value=pm.name;$("yImg").value=pm.imageURL;$("yInst").value=pm.instructions;
+      $("YFH").textContent="Edit Method";$("YF").style.display="block";$("yN").focus();
     });
   });
   tb.querySelectorAll("[data-dy]").forEach(function(b){
-    b.addEventListener("click",function(){
+    b.addEventListener("click",function(e){
+      e.preventDefault();
       if(!confirm("Delete?")) return;
-      db.collection("payment_methods").doc(this.getAttribute("data-dy")).delete()
-        .then(function(){toast("Deleted!","success");lPays()})
-        .catch(function(e){toast(e.message,"error")});
+      var delId=this.getAttribute("data-dy");
+      db.collection("payment_methods").doc(delId).delete().then(function(){
+        payMethods=payMethods.filter(function(m){return m.id!==delId});
+        toast("Deleted!","success");
+        renderYT();
+      }).catch(function(e){toast(e.message,"error")});
     });
   });
 }
 
-$("xNewPay").addEventListener("click",function(){resetYF();$("YF").style.display="block";$("yN").focus()});
-$("xCanPay").addEventListener("click",function(){$("YF").style.display="none";resetYF()});
+$("xNewPay").addEventListener("click",function(e){
+  e.preventDefault();
+  resetYF();$("YF").style.display="block";$("yN").focus();
+});
+$("xCanPay").addEventListener("click",function(e){
+  e.preventDefault();
+  $("YF").style.display="none";resetYF();
+});
 
-$("xSavePay").addEventListener("click",function(){
-  var id=$("yId").value.trim(),nm=$("yN").value.trim(),img=$("yImg").value.trim(),inst=$("yInst").value.trim();
+$("xSavePay").addEventListener("click",function(e){
+  e.preventDefault();
+  e.stopPropagation();
+
+  var id=$("yId").value.trim();
+  var nm=$("yN").value.trim();
+  var img=$("yImg").value.trim();
+  var inst=$("yInst").value.trim();
+
   if(!nm){toast("Name required","warning");$("yN").focus();return;}
-  var btn=$("xSavePay");btn.disabled=true;btn.textContent="Saving...";
+
+  var btn=$("xSavePay");
+  btn.disabled=true;btn.textContent="Saving...";
+
   var data={name:nm,imageURL:img,instructions:inst,updatedAt:now()};
-  var p;
-  if(id){p=db.collection("payment_methods").doc(id).update(data);}
-  else{data.createdAt=now();p=db.collection("payment_methods").add(data);}
-  p.then(function(){
+  var promise;
+
+  if(id){
+    promise=db.collection("payment_methods").doc(id).update(data);
+  } else {
+    data.createdAt=now();
+    promise=db.collection("payment_methods").add(data);
+  }
+
+  promise.then(function(ref){
+    if(id){
+      for(var i=0;i<payMethods.length;i++){
+        if(payMethods[i].id===id){
+          payMethods[i].name=nm;payMethods[i].imageURL=img;payMethods[i].instructions=inst;break;
+        }
+      }
+    } else {
+      payMethods.push({id:ref.id,name:nm,imageURL:img,instructions:inst});
+    }
     toast(id?"Updated!":"Added!","success");
-    $("YF").style.display="none";resetYF();lPays();
-  }).catch(function(e){
-    toast("Error: "+e.message,"error");
+    $("YF").style.display="none";
+    resetYF();
+    renderYT();
+  }).catch(function(err){
+    toast("Error: "+err.message,"error");
     btn.disabled=false;btn.textContent="💾 Save";
   });
 });
 
-// ORDERS
-$("oFlt").addEventListener("change",function(){lOrds()});
+// ==================== ORDERS ====================
+$("oFlt").addEventListener("change",function(e){e.preventDefault();lOrds()});
 
 function lOrds(){
-  serverGet(db.collection("orders")).then(function(snap){
+  smartGet(db.collection("orders"),"orders").then(function(snap){
     var os=[];
     snap.forEach(function(d){os.push({id:d.id,d:d.data()})});
     var flt=$("oFlt").value;
@@ -430,14 +577,17 @@ function lOrds(){
       });
     });
     tb.querySelectorAll("[data-ssp]").forEach(function(img){
-      img.addEventListener("click",function(){$("IPI").src=this.src;$("IP").classList.add("open")});
+      img.addEventListener("click",function(e){
+        e.preventDefault();
+        $("IPI").src=this.src;$("IP").classList.add("open");
+      });
     });
   }).catch(function(e){toast("Error: "+e.message,"error")});
 }
 
-// USERS
+// ==================== USERS ====================
 function lUsrs(){
-  serverGet(db.collection("users")).then(function(snap){
+  smartGet(db.collection("users"),"users").then(function(snap){
     var us=[];
     snap.forEach(function(d){us.push({id:d.id,d:d.data()})});
     us.sort(function(a,b){
@@ -462,7 +612,7 @@ function lUsrs(){
 }
 
 // IMG PREVIEW
-$("IPX").addEventListener("click",function(){$("IP").classList.remove("open")});
+$("IPX").addEventListener("click",function(e){e.preventDefault();$("IP").classList.remove("open")});
 $("IP").addEventListener("click",function(e){if(e.target===this) this.classList.remove("open")});
 document.addEventListener("keydown",function(e){if(e.key==="Escape") $("IP").classList.remove("open")});
 

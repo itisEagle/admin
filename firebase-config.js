@@ -1,14 +1,14 @@
 // firebase-config.js
 
 const firebaseConfig = {
-  apiKey: "AIzaSyBRjtz0PsnppnMNatRr7PKxORJ6Si7pyJ0",
-  authDomain: "test-52536.firebaseapp.com",
-  databaseURL: "https://test-52536-default-rtdb.asia-southeast1.firebasedatabase.app",
-  projectId: "test-52536",
-  storageBucket: "test-52536.firebasestorage.app",
-  messagingSenderId: "1077192555198",
-  appId: "1:1077192555198:web:be02bab456b2be9456bcef",
-  measurementId: "G-3PNWPC9PMQ"
+  apiKey: "AIzaSyCzCegBYeuHI8iiwbTW5gSdTdPedolIW2U",
+  authDomain: "sktc-dc2e2.firebaseapp.com",
+  databaseURL: "https://sktc-dc2e2-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "sktc-dc2e2",
+  storageBucket: "sktc-dc2e2.firebasestorage.app",
+  messagingSenderId: "572422226934",
+  appId: "1:572422226934:web:b02b9cd9bcf0ec6e433dd7",
+  measurementId: "G-2G0TSYNDKF"
 };
 
 const ADMIN_EMAILS = ["sb5846868@gmail.com"];

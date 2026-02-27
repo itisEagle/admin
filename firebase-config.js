@@ -1,16 +1,15 @@
-// firebase-config.js 
+// firebase-config.js
 
 const firebaseConfig = {
-  apiKey: "AIzaSyCzCegBYeuHI8iiwbTW5gSdTdPedolIW2U",
-  authDomain: "sktc-dc2e2.firebaseapp.com",
-  databaseURL: "https://sktc-dc2e2-default-rtdb.asia-southeast1.firebasedatabase.app",
-  projectId: "sktc-dc2e2",
-  storageBucket: "sktc-dc2e2.firebasestorage.app",
-  messagingSenderId: "572422226934",
-  appId: "1:572422226934:web:b02b9cd9bcf0ec6e433dd7",
-  measurementId: "G-2G0TSYNDKF"
+  apiKey: "AIzaSyBRjtz0PsnppnMNatRr7PKxORJ6Si7pyJ0",
+  authDomain: "test-52536.firebaseapp.com",
+  databaseURL: "https://test-52536-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "test-52536",
+  storageBucket: "test-52536.firebasestorage.app",
+  messagingSenderId: "1077192555198",
+  appId: "1:1077192555198:web:be02bab456b2be9456bcef",
+  measurementId: "G-3PNWPC9PMQ"
 };
-
 
 const ADMIN_EMAILS = ["sb5846868@gmail.com"];
 
@@ -19,10 +18,7 @@ const auth = firebase.auth();
 const db = firebase.firestore();
 const googleProvider = new firebase.auth.GoogleAuthProvider();
 
-// Enable offline persistence for faster reads
-db.enablePersistence({ synchronizeTabs: true }).catch(function (e) {
-  console.warn("Persistence error:", e.code);
-});
+// DO NOT use enablePersistence - it causes stale data on other devices
 
 function isAdmin(email) {
   if (!email) return false;
@@ -31,19 +27,19 @@ function isAdmin(email) {
 
 function ensureUserDocument(user) {
   var ref = db.collection("users").doc(user.uid);
-  return ref.get().then(function (doc) {
+  return ref.get().then(function(doc) {
     if (!doc.exists) {
       return ref.set({
         name: user.displayName || "",
         email: user.email || "",
         photoURL: user.photoURL || "",
         role: isAdmin(user.email) ? "admin" : "user",
-        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        createdAt: new Date().toISOString()
       });
     } else if (isAdmin(user.email) && doc.data().role !== "admin") {
       return ref.update({ role: "admin" });
     }
-  }).catch(function (e) {
+  }).catch(function(e) {
     console.warn("User doc error:", e);
   });
 }
